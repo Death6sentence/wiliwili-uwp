@@ -4,7 +4,7 @@
 
 ## 本次状态
 
-实际执行了源码下载、依赖检出、mpv 校验、PowerShell 语法解析、工作流 lint、静态清单检查和验证脚本的合成测试。Linux 上执行商店构建入口时，Windows 工具链检查返回退出码 1。GitHub API 的账户检查返回退出码 4，CLI 没有已登录身份，无法创建用户 fork、推送或启动 Windows runner。Partner Center 页面请求发生远端连接失败，产品后台和设备可用性待账号内核实。
+实际执行了源码下载、依赖检出、mpv 校验、PowerShell 语法解析、工作流 lint、静态清单检查和验证脚本的合成测试。用户 fork 的 [首次 Windows 构建](https://github.com/Death6sentence/wiliwili-uwp/actions/runs/42778455935) 已完成 CMake 和 x64 可执行文件的编译链接。MSBuild 打包任务报告 APPX1673，随后为商店清单加入固定的 PhoneIdentity 兼容 GUID。后续构建结果以该分支的 Actions 日志和实际产物报告为准。Partner Center 页面请求发生远端连接失败，产品后台和设备可用性待账号内核实。
 
 | 项目 | 配置或实测 | 结果 |
 | --- | --- | --- |
@@ -18,8 +18,8 @@
 | Windows.Universal | 最低 `10.0.17763.0`，MaxVersionTested `10.0.22621.0` | 源清单已核对 |
 | Windows.Xbox | 最低 `10.0.19041.0`，MaxVersionTested `10.0.22621.0` | 源清单已核对 |
 | 应用入口 | `App` / `wiliwili-uwp.exe` / `wiliwili-uwp.App` | 保留原生 UWP 入口；Xbox 启动待测 |
-| 最终文件、路径、大小、SHA256 | 尚无最终包 | 由成功运行的 CI 写入 `verification.json` |
-| Windows SDK 和认证 | 待执行 MakeAppx、WACK 和真机测试 | 合成测试使用替身解包器，覆盖脚本的数据检查 |
+| 最终文件、路径、大小、SHA256 | 见成功构建的实际产物报告 | 由成功运行的 CI 写入 `verification.json` |
+| Windows SDK 和认证 | 由 CI 执行 MakeAppx，WACK 和真机测试单独执行 | 合成测试使用替身解包器，覆盖脚本的数据检查 |
 
 ## 固定依赖
 
@@ -38,7 +38,7 @@ CMake、Visual Studio 及 runner 镜像补丁版本会随宿主更新，日志�
 ## 设备与能力检查
 
 - 固定 borealis 的 WinRT 实现使用 CoreApplication、D3D11 和 Xbox 设备分支。wiliwili 的原生 `wWinMain` 调用 WinRT 入口。两个 mpv DLL 的 PE 机器类型为 x64，导入 D3D、Media Foundation、UWP VC Runtime 等接口。需在成包后通过 WACK 检查 API，并在 Xbox 上核对 VCLibs 框架依赖、设备启动、控制器输入、前后台恢复及持续播放。
-- 商店清单保留联网和后台媒体能力，移除了 PhoneIdentity、桌面执行别名、入站网络能力及 `expandedResources`、`hevcPlayback`。源码检查未发现应用监听服务器或显式申请扩展资源。上游播放器含 HEVC 和 D3D 硬解路径。Xbox 的专用 4K 权限具有资源与后台限制，本候选版按普通媒体应用验证，首轮实测建议覆盖 AVC/H.264 1080p；HEVC、HDR 和 4K 的实际行为待测。[Microsoft 能力声明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/app-capability-declarations) · [Xbox HEVC/4K 说明](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/hevc-xbox)
+- 商店清单保留联网和后台媒体能力，保留独立的 PhoneIdentity 兼容 GUID，移除了桌面执行别名、入站网络能力及 `expandedResources`、`hevcPlayback`。源码检查未发现应用监听服务器或显式申请扩展资源。上游播放器含 HEVC 和 D3D 硬解路径。Xbox 的专用 4K 权限具有资源与后台限制，本候选版按普通媒体应用验证，首轮实测建议覆盖 AVC/H.264 1080p；HEVC、HDR 和 4K 的实际行为待测。[Microsoft 能力声明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/app-capability-declarations) · [Xbox HEVC/4K 说明](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/hevc-xbox)
 - 商店构建对固定 wiliwili 源码使用一个单独生成的配置源文件，将 UWP 的 TLS 验证默认值设为开启。默认网络请求因而使用 HTTPS。保留上游的设置界面。发布前需在 Windows 和 Xbox 实测证书链、无效证书拒绝、Bilibili 登录及播放器请求。
 
 ## 品牌与发布前许可核对

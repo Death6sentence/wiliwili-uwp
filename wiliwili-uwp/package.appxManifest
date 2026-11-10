@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package
 	xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+	xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
 	xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
 	xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-	IgnorableNamespaces="uap uap3">
+	IgnorableNamespaces="mp uap uap3">
 
 	<Identity Name="Ralinfr.BilibiliforXbox" Publisher="CN=51C44227-390E-4AC6-ACAA-ABF4CEE83F30"
 		Version="1.6.0.0" ProcessorArchitecture="x64" />
+	<mp:PhoneIdentity PhoneProductId="e9d02554-c22d-55c1-91c1-39779119c7e2"
+		PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 	<Properties>
 		<DisplayName>wiliwili (Ralinfr)</DisplayName>
 		<PublisherDisplayName>Ralinfr</PublisherDisplayName>
