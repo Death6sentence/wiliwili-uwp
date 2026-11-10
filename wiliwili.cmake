@@ -14,7 +14,6 @@ set(GIT_TAG_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_REVISION}-uwp-u
 set(GIT_TAG_SHORT "uwp-unofficial")
 
 set(DISABLE_OPENCC ON)
-set(VERIFY_SSL OFF)
 
 # version
 list(APPEND APP_PLATFORM_OPTION
@@ -27,13 +26,25 @@ list(APPEND APP_PLATFORM_OPTION
 #git_info(GIT_TAG_VERSION GIT_TAG_SHORT)
 list(APPEND APP_PLATFORM_OPTION -DBUILD_TAG_VERSION=${GIT_TAG_VERSION} -DBUILD_TAG_SHORT=${GIT_TAG_SHORT})
 
-# uwp res
-set(TEMPLATE_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Package.appxmanifest
-    ${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Windows_TemporaryKey.pfx
-)
+# Keep the Store project separate from the upstream test-certificate build.
+option(WILIWILI_STORE_BUILD "Generate the unsigned Xbox Store project" OFF)
+set(WILIWILI_MPV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/libs/mpv" CACHE PATH "UWP libmpv directory")
 
-file(GLOB_RECURSE PACKAGE_ASSETS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Assets/*")
+if(WILIWILI_STORE_BUILD)
+    set(WILIWILI_STORE_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/package.appxManifest"
+        CACHE FILEPATH "Store manifest for this build")
+    set(TEMPLATE_FILES "${CMAKE_CURRENT_BINARY_DIR}/Package.appxmanifest")
+    configure_file("${WILIWILI_STORE_MANIFEST}" "${TEMPLATE_FILES}" COPYONLY)
+    set(PACKAGE_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/StoreAssets")
+else()
+    set(PACKAGE_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Assets")
+    set(TEMPLATE_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Sideload.appxmanifest
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiliwili-uwp/Windows_TemporaryKey.pfx
+    )
+endif()
+
+file(GLOB_RECURSE PACKAGE_ASSETS_FILES "${PACKAGE_ASSETS_DIR}/*")
 set_property(SOURCE ${PACKAGE_ASSETS_FILES} PROPERTY VS_DEPLOYMENT_CONTENT 1)
 set_property(SOURCE ${PACKAGE_ASSETS_FILES} PROPERTY VS_DEPLOYMENT_LOCATION "Assets")
 
@@ -70,8 +81,25 @@ list(APPEND HEADER_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/wiliwili/library/pystrin
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili" PREFIX "sources" FILES ${MAIN_SRC} ${PDR_SRC} ${PYSTRING_SRC})
 
+if(WILIWILI_STORE_BUILD)
+    # Keep the pinned checkout pristine and use certificate validation by default.
+    set(config_source "${CMAKE_CURRENT_SOURCE_DIR}/wiliwili/wiliwili/source/utils/config_helper.cpp")
+    set(store_config_source "${CMAKE_CURRENT_BINARY_DIR}/store-config-helper.cpp")
+    set(upstream_tls_condition "#if defined(__PSV__) || defined(__SWITCH__) || defined(PS4) || defined(__WINRT__)")
+    file(READ "${config_source}" upstream_config)
+    string(REPLACE "${upstream_tls_condition}"
+        "#if defined(__PSV__) || defined(__SWITCH__) || defined(PS4)"
+        store_config "${upstream_config}")
+    if(store_config STREQUAL upstream_config)
+        message(FATAL_ERROR "The pinned UWP TLS default changed. Review the Store TLS configuration.")
+    endif()
+    file(WRITE "${store_config_source}" "${store_config}")
+    list(REMOVE_ITEM MAIN_SRC "${config_source}")
+    list(APPEND MAIN_SRC "${store_config_source}")
+endif()
 
-file(GLOB_RECURSE PROJECT_RESOURCES2 "${CMAKE_CURRENT_SOURCE_DIR}/libs/mpv/bin/*.dll")
+
+file(GLOB_RECURSE PROJECT_RESOURCES2 "${WILIWILI_MPV_ROOT}/bin/*.dll")
 set_property(SOURCE ${PROJECT_RESOURCES2} PROPERTY VS_DEPLOYMENT_CONTENT 1)
 set_property(SOURCE ${PROJECT_RESOURCES2} PROPERTY VS_DEPLOYMENT_LOCATION ".")
 
@@ -79,8 +107,15 @@ set_property(SOURCE ${PROJECT_RESOURCES2} PROPERTY VS_DEPLOYMENT_LOCATION ".")
 add_executable(${PROJECT_NAME} WIN32 ${MAIN_SRC} ${PDR_SRC} ${PROJECT_RESOURCES2} ${PYSTRING_SRC} ${TEMPLATE_FILES} ${PROJECT_RESOURCES_FILES} ${PACKAGE_ASSETS_FILES})
 
 
-list(APPEND HEADER_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/libs/mpv/include)
-target_link_libraries(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/libs/mpv/lib/mpv.lib)
+if(WILIWILI_STORE_BUILD)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        VS_WINDOWS_TARGET_PLATFORM_MIN_VERSION "10.0.17763.0"
+        VS_GLOBAL_AppxPackageSigningEnabled "false"
+    )
+endif()
+
+list(APPEND HEADER_INCLUDES "${WILIWILI_MPV_ROOT}/include")
+target_link_libraries(${PROJECT_NAME} "${WILIWILI_MPV_ROOT}/lib/mpv.lib")
 
 find_package(lunasvg CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} lunasvg::lunasvg)

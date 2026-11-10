@@ -1,0 +1,68 @@
+name: Xbox Store package (x64)
+
+on:
+  push:
+    branches: [store/ralinfr-xbox]
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Store package version (Major.Minor.Build.0)'
+        required: true
+        default: '1.6.0.0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      PACKAGE_VERSION: ${{ inputs.package_version || '1.6.0.0' }}
+      STORE_OUTPUT: build/store-results
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check and install C++ UWP build tools if needed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer'
+          $vswhere = Join-Path $installer 'vswhere.exe'
+          $vsArgs = @('-latest', '-version', '[17.0,18.0)', '-products', '*')
+          $vsRoot = & $vswhere @vsArgs -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vsRoot) { throw 'Visual Studio 2022 with MSBuild was not found.' }
+          $components = @('Microsoft.VisualStudio.ComponentGroup.UWP.VC', 'Microsoft.VisualStudio.Component.Windows11SDK.22621')
+          $ready = & $vswhere @vsArgs -requires $components -property installationPath
+          if (-not $ready) {
+            $setup = Join-Path $installer 'setup.exe'
+            $arguments = @('modify', '--installPath', ('"{0}"' -f $vsRoot), '--quiet', '--norestart')
+            foreach ($component in $components) { $arguments += @('--add', $component) }
+            $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -notin 0, 3010) { throw "VS installer exited $($process.ExitCode)" }
+            $ready = & $vswhere @vsArgs -requires $components -property installationPath
+            if (-not $ready) { throw 'Visual Studio did not report the required UWP/SDK components after installation.' }
+          }
+          Write-Host "Visual Studio with required components: $ready"
+
+      - name: Build and verify unsigned Store candidate
+        shell: pwsh
+        run: ./build-store.ps1 -PackageVersion $env:PACKAGE_VERSION -OutputRoot $env:STORE_OUTPUT
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: xbox-store-build-logs
+          path: build/store-results/logs/
+          if-no-files-found: warn
+
+      - name: Upload verified candidate and report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: xbox-store-x64-candidate
+          path: build/store-results/package/
+          if-no-files-found: error

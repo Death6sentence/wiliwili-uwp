@@ -38,6 +38,32 @@ UWP 版本由 [ikas-mc](https://github.com/ikas-mc) 开发，移植了 mpv 播�
 
 <br>
 
+# Ralinfr Xbox 商店版
+
+本分支以微软商店产品 `9N6TDF2N4JD5` 为目标，构建 Release x64 UWP 商店包。工程基于 `thedavidweng/wiliwili-uwp` 的 `f85d0ef9b48d4a272d42ded2b060a4d985a70197`。下方原项目安装链接指向原发行者的产品。
+
+## 构建商店候选包
+
+- Windows x64，Visual Studio 2022 17.x，MSVC v143，C++ UWP 构建工具，Windows SDK `10.0.22621.0`。
+- PowerShell 7.4+、Git、CMake 3.27+ 和 curl.exe。构建脚本按锁定的对象获取 vcpkg，首次构建需要网络和充足的磁盘空间。
+
+在工程根目录运行：
+
+```powershell
+pwsh -NoProfile -File ./build-store.ps1 -PackageVersion 1.6.0.0 -OutputRoot build/store-results
+```
+
+或推送 `store/ralinfr-xbox` 到自己的 GitHub fork。新 fork 如禁用 Actions，先在 fork 的 Actions 页启用。工作流 `Xbox Store package (x64)` 会在 `windows-2022` 上运行。工作流进入默认分支后也可使用 **Run workflow** 设置包版本。默认版本为 `1.6.0.0`。若产品有更高已提交版本，请使用更高的 `Major.Minor.Build.0`。每次本地重试可指定一个新的 `-OutputRoot`。
+
+| 输出 | 本地位置 | GitHub Actions Artifact |
+| --- | --- | --- |
+| 通过验证的候选包、最终清单、报告及哈希 | `build/store-results/package/` | `xbox-store-x64-candidate` |
+| 构建记录、可用的 CMake/vcpkg 日志、MSBuild 二进制日志 | `build/store-results/logs/` | `xbox-store-build-logs` |
+
+商店构建使用 `StoreUpload` 和 `GenerateAppxPackageOnBuild=true`，禁用本地包签名。验证成功后才保留候选包。若 MSBuild 成功但未生成 upload 容器，脚本会尝试验证实际生成的 APPX/MSIX 或 bundle，并在报告中标出格式。旧侧载构建仍走 `build-ci.ps1`、旧清单与测试证书。
+
+固定依赖、测试边界及发布风险见 [验证与依赖记录](docs/Verification.zh-CN.md)。后台草稿与零售主机安装步骤见 [Partner Center 操作清单](docs/Partner-Center.zh-CN.md)。
+
 # 安装
 
 ### Xbox
