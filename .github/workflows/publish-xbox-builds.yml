@@ -1,0 +1,36 @@
+name: Publish Xbox build archives
+on:
+  push:
+    branches: [publish-xbox-builds]
+    paths: [.github/workflows/publish-xbox-builds.yml]
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download and verify both Actions archives
+        shell: bash
+        run: |
+          gh api "repos/$GH_REPO/actions/artifacts/14328877639/zip" > wiliwili-uwp-X64-mouse-test.zip
+          gh api "repos/$GH_REPO/actions/artifacts/13748365264/zip" > xbox-store-x64-candidate.zip
+          sha256sum -c <<'CHECKSUMS'
+          1b8905ad332a0fb7e7324d72d995c073b500136df606e6c26eec83a5c19dedad  wiliwili-uwp-X64-mouse-test.zip
+          2f628ee0cb7cd18d0cc4be1ea001b11f2fabc3b5ce0fdf5dafb63400a2ce294a  xbox-store-x64-candidate.zip
+          CHECKSUMS
+      - name: Publish prerelease
+        shell: bash
+        run: |
+          cat > release-notes.md <<'NOTES'
+          - `wiliwili-uwp-X64-mouse-test.zip` 来自 Actions 运行 44082398849，包含 1.6.0.4 x64 签名 MSIX、VCLibs 依赖和证书，可用于 Xbox 开发者模式侧载测试。Xbox Series X|S 安装和实体鼠标操作尚未真机验证。
+          - `xbox-store-x64-candidate.zip` 来自较早的 Actions 运行 42781320543，包含 1.6.0.0 x64 商店提交用 MSIXUPLOAD。
+          NOTES
+          gh release create xbox-mouse-test-1.6.0.4 \
+            wiliwili-uwp-X64-mouse-test.zip xbox-store-x64-candidate.zip \
+            --target 026b7349ad5b42093303cbfad57cb892c73aa2db \
+            --title "Xbox x64 鼠标测试版 1.6.0.4" \
+            --notes-file release-notes.md --prerelease
