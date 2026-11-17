@@ -13,24 +13,23 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Download and verify both Actions archives
+      - name: Download and verify Actions archive
         shell: bash
         run: |
-          gh api "repos/$GH_REPO/actions/artifacts/14328877639/zip" > wiliwili-uwp-X64-mouse-test.zip
-          gh api "repos/$GH_REPO/actions/artifacts/13748365264/zip" > xbox-store-x64-candidate.zip
-          sha256sum -c <<'CHECKSUMS'
-          1b8905ad332a0fb7e7324d72d995c073b500136df606e6c26eec83a5c19dedad  wiliwili-uwp-X64-mouse-test.zip
-          2f628ee0cb7cd18d0cc4be1ea001b11f2fabc3b5ce0fdf5dafb63400a2ce294a  xbox-store-x64-candidate.zip
-          CHECKSUMS
+          gh api "repos/$GH_REPO/actions/artifacts/14336198851/zip" > wiliwili-uwp-1.6.0.10-x64.zip
+          echo "9b4864c47ccba2dd4d2e77789131f2a4001d24256913c9e4d8a6383bc24f7c4e  wiliwili-uwp-1.6.0.10-x64.zip" | sha256sum -c -
       - name: Publish prerelease
         shell: bash
         run: |
           cat > release-notes.md <<'NOTES'
-          - `wiliwili-uwp-X64-mouse-test.zip` 来自 Actions 运行 44082398849，包含 1.6.0.4 x64 签名 MSIX、VCLibs 依赖和证书，可用于 Xbox 开发者模式侧载测试。Xbox Series X|S 安装和实体鼠标操作尚未真机验证。
-          - `xbox-store-x64-candidate.zip` 来自较早的 Actions 运行 42781320543，包含 1.6.0.0 x64 商店提交用 MSIXUPLOAD。
+          Xbox UWP 1.6.0.10 测试版，来自成功的 Actions 运行 44099740103。
+          包含签名 x64 MSIX、Microsoft.VCLibs x64 依赖和测试证书。
+          移植 wiliwili 上游 88e5876 的网络 API 改动，包括 HTTPS、Cookie、二维码登录会话、WBI 首页与搜索请求。
+          鼠标增加 WinRT 相对移动事件备选路径。
+          编译及打包成功。Xbox 上二维码登录、视频播放和实体鼠标功能需要真机验证。
           NOTES
-          gh release create xbox-mouse-test-1.6.0.4 \
-            wiliwili-uwp-X64-mouse-test.zip xbox-store-x64-candidate.zip \
-            --target 026b7349ad5b42093303cbfad57cb892c73aa2db \
-            --title "Xbox x64 鼠标测试版 1.6.0.4" \
+          gh release create xbox-mouse-network-test-1.6.0.10 \
+            wiliwili-uwp-1.6.0.10-x64.zip \
+            --target 8f546d40ebc27c20b9a291a3689443ba9b3dc9ca \
+            --title "Xbox 鼠标与网络测试版 1.6.0.10" \
             --notes-file release-notes.md --prerelease
