@@ -120,12 +120,24 @@ if ($env:VERSION_BUILD_NUMBER) {
     $manifest.Save($appxManifestPath)
 }
 
-Write-Host "Running cmake..."
-& cmake --preset=uwp-release
-if ($LASTEXITCODE -ne 0) { Write-Error "cmake failed"; exit 1 }
+$mousePatch = Join-Path $workDir 'patches/borealis-winrt-mouse.patch'
+& git -C borealis apply --check $mousePatch
+if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch check failed" }
+& git -C borealis apply $mousePatch
+if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch failed" }
 
-Write-Host "Running msbuild..."
-& msbuild build\wiliwili-uwp.vcxproj /m /p:configuration="release" /p:platform="x64" /p:AppxBundlePlatforms="x64" /p:UapAppxPackageBuildMode="SideloadOnly" /p:PackageOptionalProjectsInIdeBuilds=False
-if ($LASTEXITCODE -ne 0) { Write-Error "msbuild failed"; exit 1 }
+try {
+    Write-Host "Running cmake..."
+    & cmake --preset=uwp-release
+    if ($LASTEXITCODE -ne 0) { Write-Error "cmake failed"; exit 1 }
+
+    Write-Host "Running msbuild..."
+    & msbuild build\wiliwili-uwp.vcxproj /m /p:configuration="release" /p:platform="x64" /p:AppxBundlePlatforms="x64" /p:UapAppxPackageBuildMode="SideloadOnly" /p:PackageOptionalProjectsInIdeBuilds=False
+    if ($LASTEXITCODE -ne 0) { Write-Error "msbuild failed"; exit 1 }
+
+} finally {
+    & git -C borealis apply --reverse $mousePatch
+    if ($LASTEXITCODE -ne 0) { throw "Failed to restore the Borealis checkout" }
+}
 
 Write-Host "Build completed successfully."
