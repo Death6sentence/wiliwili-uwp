@@ -4,7 +4,7 @@ $workDir = $PSScriptRoot
 $borealisRepo = "https://github.com/ikas-mc/borealis.git"
 $borealisRef = "winrt-dev"
 $borealisCommit = "789b230cb4e50ff2098ae872a6bfe3f1d835f25b"
-$wiliwiliRepo = "https://github.com/ikas-mc/wiliwili.git"
+$wiliwiliRepo = "https://github.com/xfangfang/wiliwili.git"
 $wiliwiliRef = "winrt-dev"
 $wiliwiliCommit = "ff43110e224c822f527f8c3dd0fb96eba9c3c827"
 
@@ -20,7 +20,7 @@ function Ensure-GitCheckout {
 
     if (-not (Test-Path $Path)) {
         Write-Host "Cloning $Path..."
-        & git clone --no-checkout $Repo $Path
+        & git clone --filter=blob:none --depth 1 --no-checkout $Repo $Path
         if ($LASTEXITCODE -ne 0) { Write-Error "git clone failed for $Path"; exit 1 }
         $newCheckout = $true
     }
