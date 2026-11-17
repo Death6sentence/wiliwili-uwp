@@ -126,7 +126,16 @@ if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch check failed" }
 & git -C borealis apply $mousePatch
 if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch failed" }
 
+$loginPatch = Join-Path $workDir 'patches/wiliwili-https-cookies.patch'
+$loginPatchApplied = $false
+
 try {
+    & git -C wiliwili apply --check $loginPatch
+    if ($LASTEXITCODE -ne 0) { throw "wiliwili login patch check failed" }
+    & git -C wiliwili apply $loginPatch
+    if ($LASTEXITCODE -ne 0) { throw "wiliwili login patch failed" }
+    $loginPatchApplied = $true
+
     Write-Host "Running cmake..."
     & cmake --preset=uwp-release
     if ($LASTEXITCODE -ne 0) { Write-Error "cmake failed"; exit 1 }
@@ -137,7 +146,12 @@ try {
 
 } finally {
     & git -C borealis apply --reverse $mousePatch
-    if ($LASTEXITCODE -ne 0) { throw "Failed to restore the Borealis checkout" }
+    $borealisRestoreResult = $LASTEXITCODE
+    if ($loginPatchApplied) {
+        & git -C wiliwili apply --reverse $loginPatch
+        if ($LASTEXITCODE -ne 0) { throw "Failed to restore the wiliwili checkout" }
+    }
+    if ($borealisRestoreResult -ne 0) { throw "Failed to restore the Borealis checkout" }
 }
 
 Write-Host "Build completed successfully."
