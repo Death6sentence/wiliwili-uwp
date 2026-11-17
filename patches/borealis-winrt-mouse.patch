@@ -1,0 +1,169 @@
+diff --git a/library/include/borealis/platforms/winrt/winrt_input.hpp b/library/include/borealis/platforms/winrt/winrt_input.hpp
+index 6776521..1242834 100644
+--- a/library/include/borealis/platforms/winrt/winrt_input.hpp
++++ b/library/include/borealis/platforms/winrt/winrt_input.hpp
+@@ -40,6 +40,8 @@ class WinRTInputManager : public InputManager
+ 
+     void runloopStart() override;
+ 
++    void drawCursor(NVGcontext* vg) override;
++
+     void setPointerLock(bool lock) override;
+ 
+   private:
+@@ -47,6 +49,13 @@ class WinRTInputManager : public InputManager
+     Point scrollOffset;
+     Point pointerOffset;
+     Point pointerOffsetBuffer;
++    Point mousePosition;
++    Point cursorPosition;
++    bool hasMousePosition = false;
++    bool receivedAbsoluteMovement = false;
++    winrt::Windows::Devices::Input::MouseDevice mouseDevice = nullptr;
++    winrt::Windows::Devices::Input::MouseDevice::MouseMoved_revoker mouseMovedRevoker;
++    void updateMousePosition(winrt::Windows::Foundation::Point const& position);
+     bool pointerLocked = false;
+     void OnPointerPressed(winrt::Windows::Foundation::IInspectable const&, winrt::Windows::UI::Core::PointerEventArgs const& args);
+     void OnPointerReleased(winrt::Windows::Foundation::IInspectable const&, winrt::Windows::UI::Core::PointerEventArgs const& args);
+diff --git a/library/lib/platforms/winrt/winrt_input.cpp b/library/lib/platforms/winrt/winrt_input.cpp
+index d1bbef2..983bd79 100644
+--- a/library/lib/platforms/winrt/winrt_input.cpp
++++ b/library/lib/platforms/winrt/winrt_input.cpp
+@@ -18,6 +18,8 @@
+ #include <borealis/core/application.hpp>
+ #include <borealis/core/logger.hpp>
+ #include <borealis/platforms/winrt/winrt_input.hpp>
++#include <nanovg.h>
++#include <algorithm>
+ #include <mutex>
+ #include <unordered_map>
+ 
+@@ -298,6 +300,34 @@ static std::unordered_map<uint32_t, WinRTTouchPoint> activeTouchPoints;
+ WinRTInputManager::WinRTInputManager(winrt::Windows::UI::Core::CoreWindow coreWindow)
+     : coreWindow(coreWindow)
+ {
++    try
++    {
++        mouseDevice = winrt::Windows::Devices::Input::MouseDevice::GetForCurrentView();
++        if (mouseDevice)
++        {
++            mouseMovedRevoker = mouseDevice.MouseMoved(winrt::auto_revoke, [this](auto const&, auto const& args)
++                {
++                    if (receivedAbsoluteMovement)
++                        return;
++
++                    const auto delta = args.MouseDelta();
++                    if (delta.X == 0 && delta.Y == 0)
++                        return;
++
++                    const auto bounds = this->coreWindow.Bounds();
++                    const float x = hasMousePosition ? mousePosition.x : bounds.Width / 2;
++                    const float y = hasMousePosition ? mousePosition.y : bounds.Height / 2;
++                    updateMousePosition({
++                        std::clamp(x + delta.X, 0.0f, bounds.Width),
++                        std::clamp(y + delta.Y, 0.0f, bounds.Height),
++                    });
++                });
++        }
++    }
++    catch (const winrt::hresult_error&)
++    {
++        // Retain CoreWindow pointer input when the relative mouse API is unavailable.
++    }
+     coreWindow.PointerPressed({ this, &WinRTInputManager::OnPointerPressed });
+     coreWindow.PointerReleased({ this, &WinRTInputManager::OnPointerReleased });
+     coreWindow.PointerMoved({ this, &WinRTInputManager::OnPointerMoved });
+@@ -352,8 +382,8 @@ WinRTInputManager::WinRTInputManager(winrt::Windows::UI::Core::CoreWindow coreWi
+ 			auto delta=point.Properties().MouseWheelDelta();
+ 			//scrollOffset.x = point.Properties().MouseWheelDelta().
+ 			scrollOffset.y=delta;
+-			pointerOffset.x=point.Position().X;
+-			pointerOffset.y=point.Position().Y; });
++			if (point.PointerDevice().PointerDeviceType() == winrt::Windows::Devices::Input::PointerDeviceType::Mouse)
++				updateMousePosition(point.Position()); });
+ 
+     Application::getRunLoopEvent()->subscribe([this]()
+         {
+@@ -378,6 +408,9 @@ void WinRTInputManager::OnPointerPressed(winrt::Windows::Foundation::IInspectabl
+         activeTouchPoints[point.PointerId()] = tp;
+     }
+ 
++    if (point.PointerDevice().PointerDeviceType() == winrt::Windows::Devices::Input::PointerDeviceType::Mouse)
++        updateMousePosition(point.Position());
++
+     auto kind = point.Properties().PointerUpdateKind();
+     if (kind == winrt::Windows::UI::Input::PointerUpdateKind::LeftButtonPressed)
+     {
+@@ -402,6 +435,9 @@ void WinRTInputManager::OnPointerReleased(winrt::Windows::Foundation::IInspectab
+         activeTouchPoints.erase(point.PointerId());
+     }
+ 
++    if (point.PointerDevice().PointerDeviceType() == winrt::Windows::Devices::Input::PointerDeviceType::Mouse)
++        updateMousePosition(point.Position());
++
+     auto kind = point.Properties().PointerUpdateKind();
+     if (kind == winrt::Windows::UI::Input::PointerUpdateKind::LeftButtonReleased)
+     {
+@@ -431,6 +467,22 @@ void WinRTInputManager::OnPointerMoved(winrt::Windows::Foundation::IInspectable
+             it->second.position = pos;
+         }
+     }
++    else if (point.PointerDevice().PointerDeviceType() == winrt::Windows::Devices::Input::PointerDeviceType::Mouse)
++    {
++        receivedAbsoluteMovement = true;
++        updateMousePosition(point.Position());
++    }
++}
++
++void WinRTInputManager::updateMousePosition(winrt::Windows::Foundation::Point const& position)
++{
++    pointerOffsetBuffer.x += hasMousePosition ? position.X - mousePosition.x : 1.0f;
++    pointerOffsetBuffer.y += hasMousePosition ? position.Y - mousePosition.y : 0.0f;
++    mousePosition.x = position.X;
++    mousePosition.y = position.Y;
++    if (!hasMousePosition)
++        coreWindow.PointerCursor(nullptr);
++    hasMousePosition = true;
+ }
+ 
+ short WinRTInputManager::getControllersConnectedCount()
+@@ -551,6 +603,14 @@ void WinRTInputManager::updateMouseStates(RawMouseState* state)
+     state->position.y = y * scaleFactor / Application::windowScale;
+ 
+     state->offset = pointerOffset;
++    if (hasMousePosition)
++    {
++        state->position.x = mousePosition.x * scaleFactor / Application::windowScale;
++        state->position.y = mousePosition.y * scaleFactor / Application::windowScale;
++        state->offset.x *= scaleFactor / Application::windowScale;
++        state->offset.y *= scaleFactor / Application::windowScale;
++        cursorPosition = state->position;
++    }
+     state->scroll = scrollOffset;
+ 
+     state->leftButton   = getMouseButtonState(MOUSE_BUTTON_LEFT);
+@@ -558,6 +618,24 @@ void WinRTInputManager::updateMouseStates(RawMouseState* state)
+     state->rightButton  = getMouseButtonState(MOUSE_BUTTON_RIGHT);
+ }
+ 
++void WinRTInputManager::drawCursor(NVGcontext* vg)
++{
++    if (!hasMousePosition || pointerLocked)
++        return;
++
++    nvgBeginPath(vg);
++    nvgMoveTo(vg, cursorPosition.x, cursorPosition.y);
++    nvgLineTo(vg, cursorPosition.x + 5, cursorPosition.y + 18);
++    nvgLineTo(vg, cursorPosition.x + 8, cursorPosition.y + 11);
++    nvgLineTo(vg, cursorPosition.x + 15, cursorPosition.y + 10);
++    nvgClosePath(vg);
++    nvgFillColor(vg, nvgRGB(255, 255, 255));
++    nvgFill(vg);
++    nvgStrokeWidth(vg, 1.5f);
++    nvgStrokeColor(vg, nvgRGB(0, 0, 0));
++    nvgStroke(vg);
++}
++
+ void WinRTInputManager::setPointerLock(bool lock)
+ {
+     pointerLocked = lock;

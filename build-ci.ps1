@@ -4,7 +4,7 @@ $workDir = $PSScriptRoot
 $borealisRepo = "https://github.com/ikas-mc/borealis.git"
 $borealisRef = "winrt-dev"
 $borealisCommit = "789b230cb4e50ff2098ae872a6bfe3f1d835f25b"
-$wiliwiliRepo = "https://github.com/ikas-mc/wiliwili.git"
+$wiliwiliRepo = "https://github.com/xfangfang/wiliwili.git"
 $wiliwiliRef = "winrt-dev"
 $wiliwiliCommit = "ff43110e224c822f527f8c3dd0fb96eba9c3c827"
 
@@ -20,7 +20,7 @@ function Ensure-GitCheckout {
 
     if (-not (Test-Path $Path)) {
         Write-Host "Cloning $Path..."
-        & git clone --no-checkout $Repo $Path
+        & git clone --filter=blob:none --depth 1 --no-checkout $Repo $Path
         if ($LASTEXITCODE -ne 0) { Write-Error "git clone failed for $Path"; exit 1 }
         $newCheckout = $true
     }
@@ -120,12 +120,38 @@ if ($env:VERSION_BUILD_NUMBER) {
     $manifest.Save($appxManifestPath)
 }
 
-Write-Host "Running cmake..."
-& cmake --preset=uwp-release
-if ($LASTEXITCODE -ne 0) { Write-Error "cmake failed"; exit 1 }
+$mousePatch = Join-Path $workDir 'patches/borealis-winrt-mouse.patch'
+& git -C borealis apply --check $mousePatch
+if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch check failed" }
+& git -C borealis apply $mousePatch
+if ($LASTEXITCODE -ne 0) { throw "Borealis mouse patch failed" }
 
-Write-Host "Running msbuild..."
-& msbuild build\wiliwili-uwp.vcxproj /m /p:configuration="release" /p:platform="x64" /p:AppxBundlePlatforms="x64" /p:UapAppxPackageBuildMode="SideloadOnly" /p:PackageOptionalProjectsInIdeBuilds=False
-if ($LASTEXITCODE -ne 0) { Write-Error "msbuild failed"; exit 1 }
+$loginPatch = Join-Path $workDir 'patches/wiliwili-https-cookies.patch'
+$loginPatchApplied = $false
+
+try {
+    & git -C wiliwili apply --check $loginPatch
+    if ($LASTEXITCODE -ne 0) { throw "wiliwili login patch check failed" }
+    & git -C wiliwili apply $loginPatch
+    if ($LASTEXITCODE -ne 0) { throw "wiliwili login patch failed" }
+    $loginPatchApplied = $true
+
+    Write-Host "Running cmake..."
+    & cmake --preset=uwp-release
+    if ($LASTEXITCODE -ne 0) { Write-Error "cmake failed"; exit 1 }
+
+    Write-Host "Running msbuild..."
+    & msbuild build\wiliwili-uwp.vcxproj /m /p:configuration="release" /p:platform="x64" /p:AppxBundlePlatforms="x64" /p:UapAppxPackageBuildMode="SideloadOnly" /p:PackageOptionalProjectsInIdeBuilds=False
+    if ($LASTEXITCODE -ne 0) { Write-Error "msbuild failed"; exit 1 }
+
+} finally {
+    & git -C borealis apply --reverse $mousePatch
+    $borealisRestoreResult = $LASTEXITCODE
+    if ($loginPatchApplied) {
+        & git -C wiliwili apply --reverse $loginPatch
+        if ($LASTEXITCODE -ne 0) { throw "Failed to restore the wiliwili checkout" }
+    }
+    if ($borealisRestoreResult -ne 0) { throw "Failed to restore the Borealis checkout" }
+}
 
 Write-Host "Build completed successfully."

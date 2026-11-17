@@ -2,13 +2,18 @@ name: build X64
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
     steps:
@@ -34,6 +39,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: wiliwili-uwp-X64
+        if-no-files-found: error
         path: |
           build\AppPackages\wiliwili-uwp\*\*.msixbundle
           build\AppPackages\wiliwili-uwp\*\*.msix
