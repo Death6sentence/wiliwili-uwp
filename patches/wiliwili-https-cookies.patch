@@ -1,0 +1,33 @@
+diff --git a/wiliwili/include/api/bilibili/util/http.hpp b/wiliwili/include/api/bilibili/util/http.hpp
+index b6b940b..3a63b30 100644
+--- a/wiliwili/include/api/bilibili/util/http.hpp
++++ b/wiliwili/include/api/bilibili/util/http.hpp
+@@ -85,8 +85,14 @@ public:
+         curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, HTTP::DNS_CACHE_TIMEOUT);
+         session->SetTimeout(cpr::Timeout{bilibili::HTTP::TIMEOUT});
+         session->SetConnectTimeout(cpr::ConnectTimeout{bilibili::HTTP::CONNECTION_TIMEOUT});
+-        session->SetHeader(bilibili::HTTP::HEADERS);
+-        session->SetCookies(bilibili::HTTP::COOKIES);
++        auto headers = bilibili::HTTP::HEADERS;
++        std::string cookieHeader;
++        for (const auto& cookie : bilibili::HTTP::COOKIES) {
++            if (!cookieHeader.empty()) cookieHeader += "; ";
++            cookieHeader += cookie.GetName() + "=" + cookie.GetValue();
++        }
++        if (!cookieHeader.empty()) headers["Cookie"] = cookieHeader;
++        session->SetHeader(headers);
+         session->SetProxies(bilibili::HTTP::PROXIES);
+         session->SetVerifySsl(bilibili::HTTP::VERIFY);
+         return session;
+diff --git a/wiliwili/source/api/bilibili.cpp b/wiliwili/source/api/bilibili.cpp
+index c378a11..4eb7e21 100644
+--- a/wiliwili/source/api/bilibili.cpp
++++ b/wiliwili/source/api/bilibili.cpp
+@@ -40,7 +40,6 @@ void BilibiliClient::setProxy(const std::string& httpProxy, const std::string& h
+ 
+ void BilibiliClient::setTlsVerify(bool value) {
+     HTTP::VERIFY = cpr::VerifySsl{value};
+-    HTTP::PROTOCOL = value ? "https:" : "http:";
+ }
+ 
+ void BilibiliClient::setHttpTimeout(int ms) {
