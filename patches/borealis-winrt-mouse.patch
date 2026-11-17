@@ -56,7 +56,7 @@ index d1bbef2..983bd79 100644
 +                    if (delta.X == 0 && delta.Y == 0)
 +                        return;
 +
-+                    const auto bounds = coreWindow.Bounds();
++                    const auto bounds = this->coreWindow.Bounds();
 +                    const float x = hasMousePosition ? mousePosition.x : bounds.Width / 2;
 +                    const float y = hasMousePosition ? mousePosition.y : bounds.Height / 2;
 +                    updateMousePosition({
