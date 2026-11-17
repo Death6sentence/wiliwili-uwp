@@ -1,29 +1,229 @@
+diff --git a/wiliwili/include/api/bilibili.h b/wiliwili/include/api/bilibili.h
+index 28104c7..958d024 100644
+--- a/wiliwili/include/api/bilibili.h
++++ b/wiliwili/include/api/bilibili.h
+@@ -49,6 +49,7 @@ class VideoEpisodeRelation;     // 番剧的某一集的点赞收藏情况
+ class VideoUrlResult;           // 视频播放地址
+ class SeasonUrlResult;          // 番剧播放地址
+ class VideoHighlightProgress;   // 视频高能进度条
++class VideoSnapshotData;        // 视频快照（缩略图）
+ class VideoDetailPage;
+ typedef std::vector<VideoDetailPage> VideoDetailPageListResult;  // 视频分P列表 （视频详情API可以直接获取分P列表）
+ class VideoPageResult;                                           // 视频分P详情 （主要用来获取cc字幕）
+@@ -493,6 +494,11 @@ public:
+                                        const std::function<void(VideoHighlightProgress)>& callback = nullptr,
+                                        const ErrorCallback& error                                  = nullptr);
+ 
++    /// 视频页 获取快照（缩略图）
++    static void get_video_snapshot(const std::string& bvid, uint64_t cid,
++                                   const std::function<void(VideoSnapshotData)>& callback = nullptr,
++                                   const ErrorCallback& error                             = nullptr);
++
+     /// 视频页 上报历史记录
+     static void report_history(const std::string& mid, const std::string& access_key, uint64_t aid,
+                                uint64_t cid, int type = 3, unsigned int progress = 0, unsigned int duration = 0,
+@@ -622,5 +628,7 @@ public:
+     static void setDnsCacheTimeout(int ms);
+ 
+     static std::string genRandomBuvid3();
++
++    static std::string genRandomUuid();
+ };
+ }  // namespace bilibili
+diff --git a/wiliwili/include/api/bilibili/api.h b/wiliwili/include/api/bilibili/api.h
+index 40746b2..0ef606e 100644
+--- a/wiliwili/include/api/bilibili/api.h
++++ b/wiliwili/include/api/bilibili/api.h
+@@ -98,6 +98,8 @@ const std::string VideoEpisodeRelation = _apiBase + "/pgc/season/episode/web/inf
+ const std::string VideoDanmaku = _apiBase + "/x/v1/dm/list.so";
+ /// 获取高能进度条
+ const std::string VideoHighlight = _bvcBase + "/pbp/data";
++/// 获取视频快照（缩略图）
++const std::string VideoSnapshot = _apiBase + "/x/player/videoshot";
+ /// 获取直播弹幕token
+ const std::string LiveDanmakuInfo = _liveBase + "/xlive/web-room/v1/index/getDanmuInfo";
+ /// 获取历史弹幕
+@@ -119,7 +121,7 @@ const std::string LiveAreaList = _liveBase + "/xlive/app-interface/v2/index/getA
+ /// ===
+ 
+ /// 主页 推荐
+-const std::string Recommend = _apiBase + "/x/web-interface/index/top/feed/rcmd";
++const std::string Recommend = _apiBase + "/x/web-interface/wbi/index/top/feed/rcmd";
+ /// 主页 热门 热门综合
+ const std::string HotsAll = _apiBase + "/x/web-interface/popular";
+ /// 主页 热门 每周推荐列表
+@@ -200,7 +202,7 @@ const std::string WatchLater = _apiBase + "/x/v2/history/toview/web";
+ /// ===
+ /// 搜索页API
+ /// ===
+-const std::string Search     = _apiBase + "/x/web-interface/search/type";
++const std::string Search     = _apiBase + "/x/web-interface/wbi/search/type";
+ const std::string TVSuggest  = _apiBase + "/x/tv/suggest";
+ const std::string SearchHots = _apiBase + "/x/web-interface/search/square";
+ 
+diff --git a/wiliwili/include/api/bilibili/result/search_result.h b/wiliwili/include/api/bilibili/result/search_result.h
+index c96a6de..0495644 100644
+--- a/wiliwili/include/api/bilibili/result/search_result.h
++++ b/wiliwili/include/api/bilibili/result/search_result.h
+@@ -4,7 +4,7 @@
+ 
+ #pragma once
+ 
+-#include "nlohmann/json.hpp"
++#include "bilibili/util/json.hpp"
+ #include <pystring.h>
+ 
+ namespace bilibili {
+@@ -63,6 +63,8 @@ public:
+     std::string rightBottomBadge;
+ 
+     VideoSearchBadgeResult badge;
++
++    bool notSupported{};
+ };
+ 
+ inline void from_json(const nlohmann::json &nlohmann_json_j, VideoItemSearchResult &nlohmann_json_t) {
+@@ -81,10 +83,9 @@ inline void from_json(const nlohmann::json &nlohmann_json_j, VideoItemSearchResu
+             nlohmann_json_t.cover = "http:" + nlohmann_json_t.cover;
+         }
+     } else if (video_type == "ketang") {
+-        nlohmann_json_j.at("aid").get_to(nlohmann_json_t.aid);
+-        nlohmann_json_j.at("pic").get_to(nlohmann_json_t.cover);
+-        nlohmann_json_j.at("author").get_to(nlohmann_json_t.subtitle);
+-        nlohmann_json_j.at("play").get_to(nlohmann_json_t.play);
++        // 移除课堂内容，暂不支持播放，可能造成解析错误
++        // TODO: 更新到新的搜索接口可以自动过滤掉非video类型的结果
++        nlohmann_json_t.notSupported = true;
+     } else if (video_type == "media_bangumi" || video_type == "media_ft") {
+         // media_bangumi: 番剧
+         // media_ft: 影视
+diff --git a/wiliwili/include/api/bilibili/result/video_detail_result.h b/wiliwili/include/api/bilibili/result/video_detail_result.h
+index 88c3875..0e7ccd0 100644
+--- a/wiliwili/include/api/bilibili/result/video_detail_result.h
++++ b/wiliwili/include/api/bilibili/result/video_detail_result.h
+@@ -696,6 +696,25 @@ inline void from_json(const nlohmann::json& nlohmann_json_j, VideoHighlightProgr
+     }
+ }
+ 
++/// 视频快照（进度条缩略图）
++class VideoSnapshotData {
++public:
++    int img_x_len  = 0;
++    int img_y_len  = 0;
++    int img_x_size = 0;
++    int img_y_size = 0;
++    std::vector<std::string> image;
++    std::vector<int> index;
++
++    bool isValid() const { return !image.empty() && img_x_len > 0 && img_y_len > 0 && img_x_size > 0 && img_y_size > 0; }
++};
++inline void from_json(const nlohmann::json& nlohmann_json_j, VideoSnapshotData& nlohmann_json_t) {
++    NLOHMANN_JSON_EXPAND(NLOHMANN_JSON_PASTE(NLOHMANN_JSON_FROM, img_x_len, img_y_len, img_x_size, img_y_size, image));
++    if (nlohmann_json_j.contains("index") && nlohmann_json_j.at("index").is_array()) {
++        nlohmann_json_j.at("index").get_to(nlohmann_json_t.index);
++    }
++}
++
+ class VideoOnlineTotal {
+ public:
+     std::string total;
 diff --git a/wiliwili/include/api/bilibili/util/http.hpp b/wiliwili/include/api/bilibili/util/http.hpp
-index b6b940b..3a63b30 100644
+index b6b940b..8b08a52 100644
 --- a/wiliwili/include/api/bilibili/util/http.hpp
 +++ b/wiliwili/include/api/bilibili/util/http.hpp
-@@ -85,8 +85,14 @@ public:
-         curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, HTTP::DNS_CACHE_TIMEOUT);
+@@ -78,6 +78,8 @@ public:
+     static inline std::string PROTOCOL = "https:";
+     static inline CurlSharedObject CURL_SHARE;
+ 
++    static std::string getEncodedCookie(const cpr::Cookies& cookies);
++
+     static std::shared_ptr<cpr::Session> createSession() {
+         auto session = std::make_shared<cpr::Session>();
+         CURL* curl = session->GetCurlHolder()->handle;
+@@ -86,7 +88,6 @@ public:
          session->SetTimeout(cpr::Timeout{bilibili::HTTP::TIMEOUT});
          session->SetConnectTimeout(cpr::ConnectTimeout{bilibili::HTTP::CONNECTION_TIMEOUT});
--        session->SetHeader(bilibili::HTTP::HEADERS);
+         session->SetHeader(bilibili::HTTP::HEADERS);
 -        session->SetCookies(bilibili::HTTP::COOKIES);
-+        auto headers = bilibili::HTTP::HEADERS;
-+        std::string cookieHeader;
-+        for (const auto& cookie : bilibili::HTTP::COOKIES) {
-+            if (!cookieHeader.empty()) cookieHeader += "; ";
-+            cookieHeader += cookie.GetName() + "=" + cookie.GetValue();
-+        }
-+        if (!cookieHeader.empty()) headers["Cookie"] = cookieHeader;
-+        session->SetHeader(headers);
          session->SetProxies(bilibili::HTTP::PROXIES);
          session->SetVerifySsl(bilibili::HTTP::VERIFY);
          return session;
+@@ -165,15 +166,7 @@ public:
+         return 1;
+     }
+ 
+-    static void signParameters(cpr::Parameters& parameters) {
+-        parameters.Add({{"appkey", BILIBILI_APP_KEY},
+-                        {"build", BILIBILI_BUILD},
+-                        {"ts", std::to_string(wiliwili::getUnixTime() * 1000)}});
+-        std::vector<std::string> kv;
+-        pystring::split(parameters.GetContent(cpr::CurlHolder()), kv, "&");
+-        std::sort(kv.begin(), kv.end());
+-        parameters.Add({{"sign", websocketpp::md5::md5_hash_hex(pystring::join("&", kv) + BILIBILI_APP_SECRET)}});
+-    }
++    static void signParameters(cpr::Parameters& parameters);
+ 
+     template <typename ReturnType>
+     static void getResultAsync(const std::string& url,
+@@ -197,8 +190,12 @@ public:
+     static void getResultWithWbiAsync(const std::string& url,
+                                       cpr::Parameters parameters                      = {},
+                                       const std::function<void(ReturnType)>& callback = nullptr,
+-                                      const ErrorCallback& error                      = nullptr) {
+-        wbi::updateWbiKeys([url, parameters, callback, error]() mutable {
++                                      const ErrorCallback& error                      = nullptr,
++                                      bool needSign                                   = false) {
++        wbi::updateWbiKeys([url, parameters, callback, error, needSign]() mutable {
++            if (needSign) {
++                signParameters(parameters);
++            }
+             wbi::encWbi(parameters);
+             _cpr_get(
+                 url,
+diff --git a/wiliwili/include/utils/config_helper.hpp b/wiliwili/include/utils/config_helper.hpp
+index dcf8b8f..143015b 100644
+--- a/wiliwili/include/utils/config_helper.hpp
++++ b/wiliwili/include/utils/config_helper.hpp
+@@ -193,7 +193,7 @@ public:
+     ProgramConfig(const ProgramConfig& config);
+     void setProgramConfig(const ProgramConfig& conf);
+     void setCookie(const Cookie& data);
+-    Cookie getCookie() const;
++    Cookie getCookie();
+     void addHistory(const std::string& key);
+     std::vector<std::string> getHistoryList();
+     void setHistory(const std::vector<std::string>& list);
 diff --git a/wiliwili/source/api/bilibili.cpp b/wiliwili/source/api/bilibili.cpp
-index c378a11..4eb7e21 100644
+index c378a11..963685b 100644
 --- a/wiliwili/source/api/bilibili.cpp
 +++ b/wiliwili/source/api/bilibili.cpp
-@@ -40,7 +40,6 @@ void BilibiliClient::setProxy(const std::string& httpProxy, const std::string& h
+@@ -19,11 +19,15 @@ std::string genRandomHex(int length) {
+     return text;
+ }
+ 
+-std::string BilibiliClient::genRandomBuvid3() {
++std::string BilibiliClient::genRandomUuid() {
+     return genRandomHex(8) + "-" + genRandomHex(4) + "-" + genRandomHex(4) + "-" + genRandomHex(4) + "-" +
+            genRandomHex(17) + "infoc";
+ }
+ 
++std::string BilibiliClient::genRandomBuvid3() {
++    return genRandomHex(32);
++}
++
+ // set bilibili cookie and cookies callback
+ // This callback is called when the BilibiliClient updates the cookie
+ void BilibiliClient::init(Cookies& data, std::function<void(Cookies, std::string)> callback) {
+@@ -31,6 +35,8 @@ void BilibiliClient::init(Cookies& data, std::function<void(Cookies, std::string
+     for (const auto& cookie : data) {
+         HTTP::COOKIES.emplace_back({cookie.first, cookie.second});
+     }
++    // Manually set cookie, because cpr's cookie algorithm does not conform to the rfc6265
++    HTTP::HEADERS["cookie"] = HTTP::getEncodedCookie(HTTP::COOKIES);
+ }
+ 
+ void BilibiliClient::setProxy(const std::string& httpProxy, const std::string& httpsProxy) {
+@@ -40,7 +46,6 @@ void BilibiliClient::setProxy(const std::string& httpProxy, const std::string& h
  
  void BilibiliClient::setTlsVerify(bool value) {
      HTTP::VERIFY = cpr::VerifySsl{value};
@@ -31,3 +231,224 @@ index c378a11..4eb7e21 100644
  }
  
  void BilibiliClient::setHttpTimeout(int ms) {
+diff --git a/wiliwili/source/api/home_api.cpp b/wiliwili/source/api/home_api.cpp
+index 0a0db83..b816c01 100644
+--- a/wiliwili/source/api/home_api.cpp
++++ b/wiliwili/source/api/home_api.cpp
+@@ -32,7 +32,7 @@ void BilibiliClient::get_recommend(int index, int num, int fresh_type, std::stri
+         });
+     }
+ 
+-    HTTP::getResultAsync<RecommendVideoListResultWrapper>(
++    HTTP::getResultWithWbiAsync<RecommendVideoListResultWrapper>(
+         Api::Recommend, parameters,
+         [callback, index](RecommendVideoListResultWrapper wrapper) {
+             wrapper.requestIndex = index;
+@@ -149,7 +149,7 @@ void BilibiliClient::get_live_recommend(int parent_area_id, int area_id, int pag
+ void BilibiliClient::get_live_recommend_second(int parent_area_id, int area_id, int page,
+                                                const std::function<void(LiveSecondResultWrapper)>& callback,
+                                                const ErrorCallback& error) {
+-    HTTP::getResultAsync<LiveSecondResultWrapper>(
++    HTTP::getResultWithWbiAsync<LiveSecondResultWrapper>(
+         Api::LiveFeedSecond,
+         {
+             {"parent_area_id", std::to_string(parent_area_id)},
+diff --git a/wiliwili/source/api/mine_api.cpp b/wiliwili/source/api/mine_api.cpp
+index e7574b3..3200ed3 100644
+--- a/wiliwili/source/api/mine_api.cpp
++++ b/wiliwili/source/api/mine_api.cpp
+@@ -70,30 +70,38 @@ void BilibiliClient::get_login_info(const std::string& oauthKey, const std::func
+ void BilibiliClient::get_login_info_v2(const std::string& qrcodeKey, const std::string& deviceName,
+                                        const std::string& deviceID, const std::function<void(enum LoginInfo)>& callback,
+                                        const ErrorCallback& error) {
+-    auto buvid3   = BilibiliClient::genRandomBuvid3();
++    auto uuid   = BilibiliClient::genRandomUuid();
++
+     HTTP::COOKIES = {{{"appkey", BILIBILI_APP_KEY},
+                       {"mobi_app", "pc_electron"},
+                       {"device", "mac"},
+                       {"innersign", "0"},
+-                      {"buvid3", buvid3},
++                      {"buvid3", uuid},
+                       {"device_id", deviceID},
+                       {"device_name", deviceName}},
+                      false};
++    // Manually set cookie, because cpr's cookie algorithm does not conform to the rfc6265
++    HTTP::HEADERS["cookie"] = HTTP::getEncodedCookie(HTTP::COOKIES);
+ 
+     HTTP::_cpr_get(
+         Api::QrLoginInfoV2, {{"qrcode_key", qrcodeKey}, {"source", "main_electron_pc"}},
+-        [callback, error, buvid3](const cpr::Response& r) {
++        [callback, error, uuid](const cpr::Response& r) {
+             try {
+                 HTTP::COOKIES      = {false};
+                 nlohmann::json res = nlohmann::json::parse(r.text);
+                 auto data          = res.at("data").get<QrLoginInfoResultV2>();
+                 if (data.status) {
+                     std::map<std::string, std::string> cookies;
+-                    cookies["_uuid"] = buvid3;
++                    cookies["_uuid"] = uuid;
++                    HTTP::COOKIES.emplace_back({"_uuid", cookies["_uuid"]});
++                    cookies["buvid3"] = BilibiliClient::genRandomBuvid3();
++                    HTTP::COOKIES.emplace_back({"buvid3", cookies["buvid3"]});
+                     for (const auto& cookie : r.cookies) {
+                         cookies[cookie.GetName()] = cookie.GetValue();
+                         HTTP::COOKIES.emplace_back({cookie.GetName(), cookie.GetValue()});
+                     }
++                    // Manually set cookie, because cpr's cookie algorithm does not conform to the rfc6265
++                    HTTP::HEADERS["cookie"] = HTTP::getEncodedCookie(HTTP::COOKIES);
+                     if (BilibiliClient::writeCookiesCallback) {
+                         BilibiliClient::writeCookiesCallback(cookies, data.refresh_token);
+                     }
+diff --git a/wiliwili/source/api/search_api.cpp b/wiliwili/source/api/search_api.cpp
+index 3aa5005..88fc5a0 100644
+--- a/wiliwili/source/api/search_api.cpp
++++ b/wiliwili/source/api/search_api.cpp
+@@ -12,7 +12,7 @@ namespace bilibili {
+ void BilibiliClient::search_video(const std::string &key, const std::string &search_type, unsigned int index,
+                                   const std::string &order, const std::function<void(SearchResult)> &callback,
+                                   const ErrorCallback &error) {
+-    HTTP::getResultAsync<SearchResult>(Api::Search,
++    HTTP::getResultWithWbiAsync<SearchResult>(Api::Search,
+                                        {{"__refresh__", "true"},
+                                         {"_extra", ""},
+                                         {"context", ""},
+diff --git a/wiliwili/source/api/util/http.cpp b/wiliwili/source/api/util/http.cpp
+index c08fb7c..fa3eafe 100644
+--- a/wiliwili/source/api/util/http.cpp
++++ b/wiliwili/source/api/util/http.cpp
+@@ -6,5 +6,24 @@
+ 
+ namespace bilibili {
+ 
++std::string HTTP::getEncodedCookie(const cpr::Cookies& cookies) {
++    std::stringstream stream;
++    for (auto it = cookies.begin(); it != cookies.end(); ++it) {
++        const cpr::Cookie& item = *it;
++        stream << item.GetName() << "=" << item.GetValue();
++        if (std::next(it) != cookies.end()) stream << "; ";
++    }
++    return stream.str();
++}
++
++void HTTP::signParameters(cpr::Parameters& parameters) {
++    parameters.Add({{"appkey", BILIBILI_APP_KEY},
++                    {"build", BILIBILI_BUILD},
++                    {"ts", std::to_string(wiliwili::getUnixTime() * 1000)}});
++    std::vector<std::string> kv;
++    pystring::split(parameters.GetContent(cpr::CurlHolder()), kv, "&");
++    std::sort(kv.begin(), kv.end());
++    parameters.Add({{"sign", websocketpp::md5::md5_hash_hex(pystring::join("&", kv) + BILIBILI_APP_SECRET)}});
++}
+ 
+ };  // namespace bilibili
+\ No newline at end of file
+diff --git a/wiliwili/source/api/video_detail_api.cpp b/wiliwili/source/api/video_detail_api.cpp
+index 597e439..3ab1556 100644
+--- a/wiliwili/source/api/video_detail_api.cpp
++++ b/wiliwili/source/api/video_detail_api.cpp
+@@ -331,6 +331,35 @@ void BilibiliClient::get_highlight_progress(uint64_t cid,
+         });
+ }
+ 
++void BilibiliClient::get_video_snapshot(const std::string& bvid, uint64_t cid,
++                                        const std::function<void(VideoSnapshotData)>& callback,
++                                        const ErrorCallback& error) {
++    auto session = HTTP::createSession();
++    session->SetUrl(cpr::Url{HTTP::PROTOCOL + Api::VideoSnapshot});
++    session->SetParameters(cpr::Parameters({
++        {"bvid", bvid},
++        {"cid", std::to_string(cid)},
++        {"index", "1"},
++    }));
++    session->GetCallback<>(
++        [callback, error](const cpr::Response& r) {
++            if (r.status_code != 200) {
++                ERROR_MSG(r.error.message, r.status_code);
++                return;
++            }
++            try {
++                nlohmann::json res = nlohmann::json::parse(r.text);
++                if (res["code"] != 0) {
++                    ERROR_MSG(res["message"].get<std::string>(), res["code"].get<int>());
++                    return;
++                }
++                HTTP_CALLBACK(res["data"].get<VideoSnapshotData>());
++            } catch (const std::exception& e) {
++                ERROR_MSG(e.what(), -1);
++            }
++        });
++}
++
+ void BilibiliClient::get_subtitle(const std::string& link, const std::function<void(SubtitleData)>& callback,
+                                   const ErrorCallback& error) {
+     auto session = HTTP::createSession();
+diff --git a/wiliwili/source/fragment/search_video.cpp b/wiliwili/source/fragment/search_video.cpp
+index 7663135..3713c9b 100644
+--- a/wiliwili/source/fragment/search_video.cpp
++++ b/wiliwili/source/fragment/search_video.cpp
+@@ -37,10 +37,18 @@ void SearchVideo::_requestSearch(const std::string& key) {
+     ASYNC_RETAIN
+     BILI::search_video(
+         key, "video", requestIndex, this->requestOrder,
+-        [ASYNC_TOKEN](const bilibili::SearchResult& result) {
+-            for (auto i : result.result) {
+-                brls::Logger::verbose("search: {}", i.title);
+-            }
++        [ASYNC_TOKEN](const bilibili::SearchResult& originalResult) {
++            bilibili::SearchResult result = originalResult;
++            // 过滤掉不支持的搜索结果
++            const auto it = std::copy_if(
++                originalResult.result.begin(),
++                originalResult.result.end(),
++                result.result.begin(),
++                [](const bilibili::VideoItemSearchResult& r) {
++                    return !r.notSupported;
++                }
++            );
++            result.result.resize(std::distance(result.result.begin(), it));
+             brls::sync([ASYNC_TOKEN, result]() {
+                 ASYNC_RELEASE
+                 auto* datasource = dynamic_cast<DataSourceSearchVideoList*>(recyclingGrid->getDataSource());
+diff --git a/wiliwili/source/utils/config_helper.cpp b/wiliwili/source/utils/config_helper.cpp
+index 1f10a15..9a62dde 100644
+--- a/wiliwili/source/utils/config_helper.cpp
++++ b/wiliwili/source/utils/config_helper.cpp
+@@ -24,6 +24,7 @@
+ #include "utils/thread_helper.hpp"
+ #include "utils/image_helper.hpp"
+ #include "utils/config_helper.hpp"
++#include <pystring.h>
+ #include "utils/crash_helper.hpp"
+ #include "utils/vibration_helper.hpp"
+ #include "utils/ban_list.hpp"
+@@ -218,7 +219,7 @@ std::unordered_map<SettingItem, ProgramOption> ProgramConfig::SETTING_MAP = {
+      {"tls_verify",
+       {},
+       {},
+-#if defined(__PSV__) || defined(__SWITCH__) || defined(PS4) || defined(__WINRT__)
++#if defined(__PSV__) || defined(__SWITCH__) || defined(PS4)
+       0}},
+ #else
+       1}},
+@@ -338,7 +339,19 @@ void ProgramConfig::setCookie(const Cookie& data) {
+     this->save();
+ }
+ 
+-Cookie ProgramConfig::getCookie() const { return this->cookie; }
++Cookie ProgramConfig::getCookie() {
++    // 生成虚假的 buvid3，在获取直播分区时需要此字段
++    // buvid3 不应以 infoc 结尾，否则会报错误码 352
++    if (!this->cookie.count("buvid3") || pystring::endswith(this->cookie["buvid3"], "infoc")) {
++        this->cookie["buvid3"] = wiliwili::getRandomHex(32, false);
++    }
++    // 生成虚假的 DedeUserID，在未登录时使用
++    // 默认用户ID (DedeUserID) 为0表示未登录，如果没有此字段老版本搜索api会报错，但目前没有这个问题，维持现状
++    if (!this->cookie.count("DedeUserID")) {
++        this->cookie["DedeUserID"] = "0";
++    }
++    return this->cookie;
++}
+ 
+ void ProgramConfig::addHistory(const std::string& key) {
+     if (key.empty()) return;
